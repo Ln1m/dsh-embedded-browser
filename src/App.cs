@@ -1,4 +1,4 @@
-// DeepSeek Harness Desktop App (WebView2 wrapper)
+﻿// DeepSeek Harness Desktop App (WebView2 wrapper)
 // Loads the local DSH Web GUI (http://127.0.0.1:3080) in a standalone window.
 // Starts the `dsh web` server automatically when it is not running.
 // Built with .NET Framework (csc) + Microsoft.Web.WebView2.
@@ -29,17 +29,22 @@ namespace DshDesktop
         private const string Host = "127.0.0.1";
         private const int Port = 3080;
         private const string Url = "http://127.0.0.1:3080/";
-        private const string DshCmd = "D:\\DeepSeek_harness\\node_modules\\.bin\\dsh.cmd";
-        private const string DshWorkDir = "D:\\DeepSeek_harness";
-        private const string IconPath = "D:\\DeepSeek_harness\\assets\\deepseek_harness.ico";
+
+        // DSH 安装根：默认 %USERPROFILE%\DeepSeek_harness，可用环境变量 DSH_ROOT 覆盖。
+        private static readonly string Root =
+            Environment.GetEnvironmentVariable("DSH_ROOT")
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "DeepSeek_harness");
+        private static readonly string DshCmd = Root + "\\node_modules\\.bin\\dsh.cmd";
+        private static readonly string DshWorkDir = Root + "";
+        private static readonly string IconPath = Root + "\\assets\\deepseek_harness.ico";
         // 系统托盘守护（DSH-Tray.exe）。2026-09-12：窗口一启动就在 Main 里确保它挂起来，
         // 关窗时再兜底一次。托盘在 = 3080 引擎与 3081 手机反代有守护，关窗只是一次普通关闭。
-        private const string TrayExe = "D:\\DeepSeek_harness\\dsh-tray\\DSH-Tray.exe";
-        private const string TrayWorkDir = "D:\\DeepSeek_harness\\dsh-tray";
-        private const string ChangliaoIconPath = "D:\\DeepSeek_harness\\assets\\changliao.ico";
+        private static readonly string TrayExe = Root + "\\dsh-tray\\DSH-Tray.exe";
+        private static readonly string TrayWorkDir = Root + "\\dsh-tray";
+        private static readonly string ChangliaoIconPath = Root + "\\assets\\changliao.ico";
         private const string MutexName = "DshDesktop_SingleInstance_3080";
         private const int ProxyPort = 3081;
-        private const string ProxyScript = "D:\\DeepSeek_harness\\scripts\\dsh-wifi-proxy.js";
+        private static readonly string ProxyScript = Root + "\\scripts\\dsh-wifi-proxy.js";
         private const int SwRestore = 9;
 
         [DllImport("user32.dll")]
@@ -157,8 +162,8 @@ namespace DshDesktop
             try
             {
                 string[] candidates = new string[] {
-                    "D:\\DeepSeek_harness\\logs\\dsh-web.log",
-                    "D:\\DeepSeek_harness\\dsh-tray\\logs\\web.log"
+                    Root + "\\logs\\dsh-web.log",
+                    Root + "\\dsh-tray\\logs\\web.log"
                 };
                 string bestToken = null;
                 DateTime bestTime = DateTime.MinValue;
@@ -210,7 +215,7 @@ namespace DshDesktop
         {
             try
             {
-                File.AppendAllText("D:\\DeepSeek_harness\\logs\\dsh-desktop.log",
+                File.AppendAllText(Root + "\\logs\\dsh-desktop.log",
                     DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + Environment.NewLine);
             }
             catch
@@ -230,8 +235,8 @@ namespace DshDesktop
         // first candidate ResolveWebUrl() reads), (2) start with --no-open so a background
         // start does not pop the default browser, (3) if the 3080 listener is younger than
         // the newest token log, its token is untraceable: take the engine over and restart.
-        private const string WebLogPath = "D:\\DeepSeek_harness\\logs\\dsh-web.log";
-        private const string WebErrLogPath = "D:\\DeepSeek_harness\\logs\\dsh-web.err.log";
+        private static readonly string WebLogPath = Root + "\\logs\\dsh-web.log";
+        private static readonly string WebErrLogPath = Root + "\\logs\\dsh-web.err.log";
         private static Process _engineProcess;
 
         private static void AppendEngineLog(string path, string line)
@@ -308,8 +313,8 @@ namespace DshDesktop
         {
             DateTime newest = DateTime.MinValue;
             string[] candidates = new string[] {
-                "D:\\DeepSeek_harness\\logs\\dsh-web.log",
-                "D:\\DeepSeek_harness\\dsh-tray\\logs\\web.log"
+                Root + "\\logs\\dsh-web.log",
+                Root + "\\dsh-tray\\logs\\web.log"
             };
             foreach (string f in candidates)
             {
@@ -417,7 +422,7 @@ namespace DshDesktop
                 ProcessStartInfo psi = new ProcessStartInfo();
                 psi.FileName = "node.exe";
                 psi.Arguments = "\"" + ProxyScript + "\"";
-                psi.WorkingDirectory = "D:\\DeepSeek_harness\\scripts";
+                psi.WorkingDirectory = Root + "\\scripts";
                 psi.WindowStyle = ProcessWindowStyle.Hidden;
                 psi.CreateNoWindow = true;
                 psi.UseShellExecute = false;
@@ -659,6 +664,10 @@ namespace DshDesktop
             private System.Windows.Forms.Timer _navTimer;  // 导航看门狗
             private System.Windows.Forms.Timer _retryTimer; // 失败后退避重试
             private Label _overlay;
+            // —— 开机片头（2026-09-28）：铺满窗口，盖住"WebView2 还没渲染出 DSH 界面"的那段空白 ——
+            private static readonly string SplashTemplate = Root + @"\\assets\boot-splash";
+            private const string SplashHost = "splash.local";
+            private WebView2 _splash;
             // —— 右栏内嵌浏览器：主窗体里的一块 WebView2 子控件（不是独立窗口、没有坐标同步）——
             // 页面（主 WebView2 里的 DSH 右栏面板）用 chrome.webview.postMessage 把面板矩形的
             // getBoundingClientRect() + dpr 报过来，这里按矩形摆它；面板关掉/切走就隐藏。
@@ -680,6 +689,61 @@ namespace DshDesktop
                 public string Title = "";
                 public bool Loading;
             }
+            /// <summary>加载遮罩：导航期间盖住旧页面（WebView2 默认会一直显示旧页直到新页首帧，
+            /// 面板那边看不到任何动静，观感就是"点了没反应"）。</summary>
+            private sealed class EmbedMask : Control
+            {
+                public double Angle;
+
+                public EmbedMask()
+                {
+                    SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
+                        | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                    Visible = false;
+                }
+
+                protected override void OnPaint(PaintEventArgs e)
+                {
+                    Graphics g = e.Graphics;
+                    using (SolidBrush back = new SolidBrush(Color.FromArgb(0x17, 0x18, 0x1C)))
+                    {
+                        g.FillRectangle(back, ClientRectangle);
+                    }
+                    int size = 30;
+                    int cx = Width / 2;
+                    int cy = Height / 2;
+                    if (cx < size || cy < size) return;
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    Rectangle box = new Rectangle(cx - size / 2, cy - size / 2, size, size);
+                    using (Pen track = new Pen(Color.FromArgb(0x2A, 0x2E, 0x36), 2.6f))
+                    {
+                        g.DrawEllipse(track, box);
+                    }
+                    // 渐隐尾巴：16 小段拼出约 100° 的弧，尾端渐淡，转起来就是常见的加载环
+                    const int segments = 16;
+                    for (int i = 0; i < segments; i++)
+                    {
+                        int alpha = 10 + (int)(245.0 * (i + 1) / segments);
+                        using (Pen arc = new Pen(Color.FromArgb(alpha, 0x6F, 0xA8, 0xFF), 3f))
+                        {
+                            arc.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                            arc.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                            g.DrawArc(arc, box, (float)(Angle + i * 6.0), 8f);
+                        }
+                    }
+                }
+            }
+
+            private EmbedMask _embedMask;
+            /// <summary>延迟露面（180ms）：几百毫秒内就完成的导航不闪遮罩。</summary>
+            private System.Windows.Forms.Timer _embedMaskDelay;
+            /// <summary>延迟撤除（140ms）：JS 重定向紧接着又开一次导航时不闪回旧页。</summary>
+            private System.Windows.Forms.Timer _embedMaskClear;
+            private System.Windows.Forms.Timer _embedMaskSpin;
+            private bool _embedMaskOn;
+            private double _embedMaskAngle;
+            private const int EmbedMaskDelayMs = 180;
+            private const int EmbedMaskClearMs = 140;
             private readonly List<EmbedTab> _embedTabs = new List<EmbedTab>();
             private string _embedActiveId = "";
             private int _embedSerial = 0;
@@ -799,6 +863,14 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                 _overlay.Text = "正在连接 DSH 服务…";
                 _overlay.Visible = false;
                 Controls.Add(_overlay);
+                // 开机片头盖在最上层：窗口一出现就有画面，直到 DSH 界面自己渲染出来
+                EnsureSplashRoot();
+                _splash = new WebView2();
+                _splash.Dock = DockStyle.Fill;
+                _splash.Visible = true;
+                try { _splash.DefaultBackgroundColor = Color.Black; } catch { }
+                Controls.Add(_splash);
+                _splash.BringToFront();
                 Shown += OnShown;
             }
 
@@ -814,10 +886,20 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                     }
                     _navTimer.Stop();
                     _navTimer.Start();
-                    if (_overlay != null)
+                    // 首次导航由开机片头盖着，不再叠一块纯色遮罩；一旦要重试就让位给可读的文字提示
+                    if (_attempt == 0)
                     {
-                        _overlay.Visible = true;
-                        _overlay.Text = "正在连接 DSH 服务…" + Environment.NewLine + reason;
+                        if (_overlay != null) _overlay.Visible = false;
+                        if (_splash != null) _splash.Visible = true;
+                    }
+                    else
+                    {
+                        HideSplash();
+                        if (_overlay != null)
+                        {
+                            _overlay.Visible = true;
+                            _overlay.Text = "正在连接 DSH 服务…" + Environment.NewLine + reason;
+                        }
                     }
                     // 主页面要重载了：先把内嵌浏览器收掉，别让它盖住加载遮罩（页面回来后客户端会重新报矩形）
                     HideEmbed();
@@ -837,7 +919,12 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                 if (_navTimer != null) _navTimer.Stop();
                 _timeoutRetries++;
                 if (!Program.PortOpen()) Program.StartServer();
-                if (_overlay != null) _overlay.Text = "后端还没就绪，正在重试…";
+                HideSplash();
+                if (_overlay != null)
+                {
+                    _overlay.Visible = true;
+                    _overlay.Text = "后端还没就绪，正在重试…";
+                }
                 ScheduleRetry();
             }
 
@@ -847,11 +934,17 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                 if (e.IsSuccess)
                 {
                     if (_overlay != null) _overlay.Visible = false;
+                    ReleaseSplashToUser();
                     return;
                 }
                 // 失败：短暂等一次再重试；若引擎已不在，顺手把它拉起来
                 if (!Program.PortOpen()) Program.StartServer();
-                if (_overlay != null) _overlay.Text = "页面加载失败，正在重试…";
+                HideSplash();
+                if (_overlay != null)
+                {
+                    _overlay.Visible = true;
+                    _overlay.Text = "页面加载失败，正在重试…";
+                }
                 ScheduleRetry();
             }
 
@@ -874,6 +967,91 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                 _retryTimer.Stop();
                 _retryTimer.Interval = delay;
                 _retryTimer.Start();
+            }
+
+            /// <summary>
+            /// DSH 界面已经能操作了：片头不再由"DSH 是否就绪"决定去留 —— 露出右上角的「跳过」，
+            /// 这一遍播完（或用户点跳过）才撤。片头当时若还在间隔/加载中，页面会直接回报已结束。
+            /// </summary>
+            private void ReleaseSplashToUser()
+            {
+                if (_splash == null || !_splash.Visible) return;
+                if (_splash.CoreWebView2 == null)
+                {
+                    HideSplash();
+                    return;
+                }
+                try
+                {
+                    _splash.CoreWebView2.ExecuteScriptAsync("window.__splashReady&&window.__splashReady()");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("splash ready failed: " + ex.Message);
+                    HideSplash();
+                }
+            }
+
+            private void HideSplash()
+            {
+                try
+                {
+                    if (_splash != null) _splash.Visible = false;
+                }
+                catch
+                {
+                }
+            }
+
+            /// <summary>片头资产摊到 ~/.dsh/boot-splash：页面每次用模板覆盖，视频与配置归用户。</summary>
+            private static void EnsureSplashRoot()
+            {
+                try
+                {
+                    string root = SplashRoot();
+                    Directory.CreateDirectory(root);
+                    Directory.CreateDirectory(Path.Combine(root, "videos"));
+                    File.Copy(Path.Combine(SplashTemplate, "index.html"), Path.Combine(root, "index.html"), true);
+                    string cfg = Path.Combine(root, "config.json");
+                    if (!File.Exists(cfg))
+                    {
+                        File.WriteAllText(cfg,
+                            "{\r\n  \"video\": \"cyberpunk-intro.mp4\",\r\n  \"gapMs\": 3000\r\n}\r\n",
+                            new System.Text.UTF8Encoding(false));
+                    }
+                    string def = Path.Combine(root, "videos", "cyberpunk-intro.mp4");
+                    if (!File.Exists(def))
+                    {
+                        File.Copy(Path.Combine(SplashTemplate, "cyberpunk-intro.mp4"), def, true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("splash root failed: " + ex.Message);
+                }
+            }
+
+            private static string SplashRoot()
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".dsh", "boot-splash");
+            }
+
+            /// <summary>页面侧的两条消息：splash-skip（用户点跳过）、splash-ended（这一遍播完了）。</summary>
+            private void OnSplashMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+            {
+                string json;
+                try
+                {
+                    json = e.WebMessageAsJson;
+                }
+                catch
+                {
+                    return;
+                }
+                if (json == null) return;
+                if (json.IndexOf("splash-skip") >= 0 || json.IndexOf("splash-ended") >= 0) HideSplash();
             }
 
             /// <summary>
@@ -1004,8 +1182,9 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                 {
                     _embedBounds = rect;
                     _embed.Bounds = rect;
-                    if (!_embed.Visible) _embed.Visible = true;
+                    if (!_embed.Visible && !_embedMaskOn) _embed.Visible = true;
                     _embed.BringToFront();
+                    SyncEmbedMask();
                     BringShelfFront();
                 }
             }
@@ -1109,7 +1288,129 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                 }
                 try { if (_embed != null) _embed.Visible = false; }
                 catch { }
+                // 面板整块让位（收藏夹小卡片浮层/切走）：加载遮罩也一起收掉，且别把画面放回来
+                HideEmbedMask(false);
                 HideShelf(true);
+            }
+
+            /// <summary>该不该有遮罩：面板在要画面、当前标签在加载、矩形有效。</summary>
+            private bool EmbedMaskWanted()
+            {
+                return _embedWanted && _embedLoading && _embed != null && !_embedBounds.IsEmpty;
+            }
+
+            /// <summary>导航一开始就调：先等 180ms，慢加载才真的露面。</summary>
+            private void ArmEmbedMask()
+            {
+                if (_embedMaskClear != null) _embedMaskClear.Stop();
+                if (!EmbedMaskWanted())
+                {
+                    HideEmbedMask();
+                    return;
+                }
+                if (_embedMaskOn)
+                {
+                    SyncEmbedMask();
+                    return;
+                }
+                if (_embedMaskDelay == null)
+                {
+                    _embedMaskDelay = new System.Windows.Forms.Timer { Interval = EmbedMaskDelayMs };
+                    _embedMaskDelay.Tick += delegate
+                    {
+                        _embedMaskDelay.Stop();
+                        if (EmbedMaskWanted()) ShowEmbedMask();
+                    };
+                }
+                _embedMaskDelay.Stop();
+                _embedMaskDelay.Start();
+            }
+
+            /// <summary>遮罩在显示时又报了新矩形（拖右栏）：跟着走。</summary>
+            private void SyncEmbedMask()
+            {
+                if (!_embedMaskOn || _embedMask == null) return;
+                try { _embedMask.Bounds = _embedBounds; } catch { }
+                try { if (_embed.Visible) _embed.Visible = false; } catch { }
+                try { _embedMask.BringToFront(); } catch { }
+                BringShelfFront();
+            }
+
+            private void ShowEmbedMask()
+            {
+                if (_embedMask == null)
+                {
+                    _embedMask = new EmbedMask();
+                    Controls.Add(_embedMask);
+                }
+                if (!EmbedMaskWanted()) return;
+                _embedMaskAngle = 0;
+                _embedMask.Angle = 0;
+                try { _embedMask.Bounds = _embedBounds; } catch { }
+                _embedMaskOn = true;
+                // 遮罩是普通 GDI 控件，WebView2 是原生子控件：藏掉画面才保证遮罩一定在它上面
+                try { if (_embed != null) _embed.Visible = false; } catch { }
+                try { _embedMask.Visible = true; _embedMask.BringToFront(); } catch { }
+                BringShelfFront();
+                if (_embedMaskSpin == null)
+                {
+                    _embedMaskSpin = new System.Windows.Forms.Timer { Interval = 33 };
+                    _embedMaskSpin.Tick += delegate
+                    {
+                        if (!_embedMaskOn || _embedMask == null) return;
+                        _embedMaskAngle = (_embedMaskAngle + 24.0) % 360.0;
+                        _embedMask.Angle = _embedMaskAngle;
+                        _embedMask.Invalidate();
+                    };
+                }
+                _embedMaskSpin.Start();
+            }
+
+            /// <summary>一次导航完成后不马上撤：等 140ms，紧接着又来一次导航（JS 重定向）就继续盖着。</summary>
+            private void ScheduleEmbedMaskClear()
+            {
+                // 导航已经结束了：还没到 180ms 的延迟露面直接取消，否则快页面会闪一下遮罩
+                if (_embedMaskDelay != null) _embedMaskDelay.Stop();
+                if (_embedMaskClear == null)
+                {
+                    _embedMaskClear = new System.Windows.Forms.Timer { Interval = EmbedMaskClearMs };
+                    _embedMaskClear.Tick += delegate
+                    {
+                        _embedMaskClear.Stop();
+                        HideEmbedMask();
+                    };
+                }
+                _embedMaskClear.Stop();
+                _embedMaskClear.Start();
+            }
+
+            /// <summary>导航结束（成功或失败都算）：撤遮罩，把画面放回来。</summary>
+            private void HideEmbedMask()
+            {
+                HideEmbedMask(true);
+            }
+
+            /// <summary>restore=false 用于面板整块让位：只撤遮罩，别把画面又放出来。</summary>
+            private void HideEmbedMask(bool restore)
+            {
+                if (_embedMaskDelay != null) _embedMaskDelay.Stop();
+                if (_embedMaskClear != null) _embedMaskClear.Stop();
+                if (_embedMaskSpin != null) _embedMaskSpin.Stop();
+                if (!_embedMaskOn) return;
+                _embedMaskOn = false;
+                try { if (_embedMask != null) _embedMask.Visible = false; } catch { }
+                if (!restore) return;
+                try
+                {
+                    if (_embed != null && _embedWanted && !_embedBounds.IsEmpty)
+                    {
+                        _embed.Bounds = _embedBounds;
+                        _embed.Visible = true;
+                        _embed.BringToFront();
+                    }
+                }
+                catch { }
+                BringShelfFront();
             }
 
             /// <summary>建一块内嵌 WebView2 子控件（共用一份 CoreWebView2Environment：同一个浏览器进程、同一个 9223 调试口）。</summary>
@@ -1176,11 +1477,22 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                 view.CoreWebView2.NavigationStarting += delegate(object s3, CoreWebView2NavigationStartingEventArgs a3)
                 {
                     tab.Loading = true;
+                    // 只有当前可见标签的导航才动画面：后台标签在加载不该把画面遮住
+                    if (tab.Id == _embedActiveId)
+                    {
+                        _embedLoading = true;
+                        ArmEmbedMask();
+                    }
                     PushEmbedState();
                 };
                 view.CoreWebView2.NavigationCompleted += delegate(object s3, CoreWebView2NavigationCompletedEventArgs a3)
                 {
                     tab.Loading = false;
+                    if (tab.Id == _embedActiveId)
+                    {
+                        _embedLoading = false;
+                        ScheduleEmbedMaskClear();
+                    }
                     PushEmbedState();
                 };
                 view.CoreWebView2.SourceChanged += delegate(object s3, CoreWebView2SourceChangedEventArgs a3)
@@ -1256,6 +1568,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                     _embedUrl = "";
                     _embedTitle = "";
                     _embedLoading = false;
+                    HideEmbedMask(false);
                     return;
                 }
                 _embedActiveId = tab.Id;
@@ -1273,6 +1586,8 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                 // 关键：WinForms 里后 Add 的控件在 z 序最底，不抬上来就被主视图盖住（页面在跑却什么都看不到）
                 try { if (_embed != null && _embed.Visible) _embed.BringToFront(); }
                 catch { }
+                // 切到一个还在加载的标签：遮罩该在就在；切到已加载完的标签：撤掉并把画面放回来
+                if (_embedLoading) ArmEmbedMask(); else HideEmbedMask();
                 BringShelfFront();
             }
 
@@ -1316,8 +1631,9 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                         try { tab.View.Bounds = _embedBounds; }
                         catch { }
                     }
-                    try { tab.View.Visible = true; tab.View.BringToFront(); }
+                    try { tab.View.Visible = !_embedMaskOn; tab.View.BringToFront(); }
                     catch { }
+                    SyncEmbedMask();
                     BringShelfFront();
                     PushEmbedState();
                 }
@@ -1657,6 +1973,10 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
 
             protected override void OnFormClosing(FormClosingEventArgs e)
             {
+                // 窗口关掉后遮罩的定时器还会 tick 到已释放的控件，先停掉
+                if (_embedMaskDelay != null) _embedMaskDelay.Stop();
+                if (_embedMaskClear != null) _embedMaskClear.Stop();
+                if (_embedMaskSpin != null) _embedMaskSpin.Stop();
                 // 2026-09-11：取消关闭询问弹窗，点 X 一律静默驻留托盘（引擎 3080 与 WiFi 反代 3081 继续跑），
                 // 双击托盘图标随时唤回；系统注销/关机（CloseReason 非 UserClosing）仍直接放行。
                 if (_closeResolved || e.CloseReason != CloseReason.UserClosing)
@@ -1688,6 +2008,19 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')chrome.webvi
                     };
                     string mainData = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dsh-desktop.exe.WebView2");
                     CoreWebView2Environment mainEnv = await CoreWebView2Environment.CreateAsync(null, mainData, mainOptions);
+                    try
+                    {
+                        await _splash.EnsureCoreWebView2Async(mainEnv);
+                        _splash.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                        _splash.CoreWebView2.WebMessageReceived += OnSplashMessage;
+                        _splash.CoreWebView2.SetVirtualHostNameToFolderMapping(SplashHost, SplashRoot(), CoreWebView2HostResourceAccessKind.Allow);
+                        _splash.CoreWebView2.Navigate("http://" + SplashHost + "/index.html");
+                    }
+                    catch (Exception exSplash)
+                    {
+                        System.Diagnostics.Debug.WriteLine("splash failed: " + exSplash.Message);
+                        HideSplash();
+                    }
                     await web.EnsureCoreWebView2Async(mainEnv);
                 }
                 catch (Exception ex)
