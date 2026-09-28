@@ -4,9 +4,9 @@
 #   powershell -File .\build.ps1                        -> build dsh-desktop-new.exe (hot-swap via apply-new.ps1)
 #   powershell -File .\build.ps1 -Out dsh-desktop.exe   -> build straight to the live exe (app must be closed)
 #
-# 2026-09-10: the old build\packages folder is gone, so reference the WebView2 DLLs that
-# already sit next to the exe (copied from the original NuGet package), falling back to
-# build\packages when it still exists.
+# The old build\packages folder is gone, so reference the WebView2 DLLs that
+# already sit next to the exe, falling back to build\packages when it still exists.
+# Optional window icon: set $env:DSH_ICON to an .ico path.
 param(
     [string]$Out = 'dsh-desktop-new.exe'
 )
@@ -29,12 +29,16 @@ foreach ($f in @($core, $win, $loaderSrc, $csc)) {
 }
 
 $outPath = Join-Path $app $Out
-& $csc /nologo /target:winexe /out:"$outPath" /platform:anycpu `
-  /win32icon:"D:\DeepSeek_harness\assets\deepseek_harness.ico" `
-  /win32manifest:"$app\src\app.manifest" `
-  /r:System.dll /r:System.Core.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll `
-  /r:"$core" /r:"$win" `
-  "$app\src\App.cs"
+$cscArgs = @(
+    '/nologo', '/target:winexe', "/out:$outPath", '/platform:anycpu',
+    "/win32manifest:$app\src\app.manifest",
+    '/r:System.dll', '/r:System.Core.dll', '/r:System.Windows.Forms.dll',
+    '/r:System.Drawing.dll', '/r:System.Web.Extensions.dll',
+    "/r:$core", "/r:$win",
+    "$app\src\App.cs"
+)
+if ($env:DSH_ICON -and (Test-Path $env:DSH_ICON)) { $cscArgs = @("/win32icon:$env:DSH_ICON") + $cscArgs }
+& $csc @cscArgs
 if ($LASTEXITCODE -ne 0) { Write-Host 'BUILD FAILED'; exit 1 }
 
 # Only refresh the loader DLL when it came from a NuGet package (never self-copy).
