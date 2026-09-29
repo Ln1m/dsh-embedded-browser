@@ -43,7 +43,7 @@
     "author": "Ln1m (https://github.com/Ln1m)",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/Ln1m/dsh-embedded-browser.git"
+        "url": "git+https://github.com/Ln1m/dsh-pane-browser.git"
     },
     "homepage": "https://github.com/Ln1m/dsh-pane-browser#readme",
     "bugs": {
